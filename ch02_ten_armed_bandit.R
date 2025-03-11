@@ -1,6 +1,7 @@
 library(R6)
 library(ggplot2)
 
+
 # BaseBandit class ----
 BaseBandit <- R6Class("BaseBandit",
   public = list(
@@ -379,7 +380,12 @@ fig_2_5 <- function(runs = 200, steps = 100) {
          x = "Steps", y = "% Optimal Action")
   
   print(p)
+  
+  fig_num <- "2_5"
+  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  ggsave(filename = filename)
 }
 
 fig_2_5()
+
 
