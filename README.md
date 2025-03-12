@@ -85,19 +85,15 @@ R replication for Sutton & Barto's book [*Reinforcement Learning: An Introductio
 2. [Figure 13.1: REINFORCE on the short-corridor grid world](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/figure_13_1.png)
 3. [Figure 13.2: REINFORCE with baseline on the short-corridor grid-world](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/figure_13_2.png)
 
-
-# Environment
-* python 3.6 
-* numpy
-* matplotlib
-* [seaborn](https://seaborn.pydata.org/index.html)
-* [tqdm](https://pypi.org/project/tqdm/)
-
 # Usage
 > All files are self-contained
+
+Recommended with Rstudio.
+
 ```commandline
-python any_file_you_want.py
+Rscript any_file_you_want.R
 ```
+
 
 # Contribution
 If you want to contribute some missing examples or fix some bugs, feel free to open an issue or make a pull request. 
