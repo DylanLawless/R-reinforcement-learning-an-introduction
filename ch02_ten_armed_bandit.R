@@ -1,6 +1,6 @@
 library(R6)
-library(ggplot2)
-
+library(ggplot2); theme_set(theme_bw())
+library(patchwork)
 
 # BaseBandit class ----
 BaseBandit <- R6Class("BaseBandit",
@@ -157,7 +157,7 @@ run_bandits <- function(bandits, n_runs, n_steps) {
 
 # Figure 2.1: Violin plot of reward distributions ----
 fig_2_1 <- function() {
-  set.seed(123)
+  set.seed(666)
   data_mat <- matrix(rnorm(200 * 10), ncol = 10)
   shifts <- rnorm(10)
   for (i in 1:10) {
@@ -170,15 +170,23 @@ fig_2_1 <- function() {
   
   p <- ggplot(df, aes(x = action, y = value)) +
     geom_violin(trim = FALSE) +
+    geom_jitter(alpha= 0.1) +
     stat_summary(fun = mean, geom = "point", color = "red") +
+    geom_hline(yintercept = 0, linetype="dotted") +
     labs(x = "Action", y = "Reward distribution",
          title = "Figure 2.1: Violin Plot of Reward Distributions")
   
   print(p)
+  fig_num <- "2_1"
+  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  ggsave(filename = filename)
 }
 
+fig_2_1()
+
 # Figure 2.2: Average performance of ε-greedy methods ----
-fig_2_2 <- function(runs = 20, steps = 10, epsilons = c(0, 0.01, 0.1)) {
+# runs=2000, steps=1000
+fig_2_2 <- function(runs = 2000, steps = 1000, epsilons = c(0, 0.01, 0.1)) {
   bandits <- lapply(epsilons, function(eps) BaseBandit$new(eps = eps))
   res <- run_bandits(bandits, runs, steps)
   avg_rewards <- res$avg_rewards  # rows: bandits, columns: steps
@@ -204,13 +212,21 @@ fig_2_2 <- function(runs = 20, steps = 10, epsilons = c(0, 0.01, 0.1)) {
     geom_line() +
     labs(title = "Figure 2.2 (Bottom): % Optimal Action", x = "Steps", y = "% Optimal Action")
   
-  print(p1)
-  print(p2)
+  print(p1 / p2)
+  # print(p2)
+  
+  fig_num <- "2_2"
+  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  ggsave(filename = filename, p2)
+
 }
 
 # Run the figures (they will be printed, not saved)
-fig_2_1()
+start.time <- Sys.time()
 fig_2_2()
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
 
 
 # EXPERIMENT START PARALLEL ----
@@ -255,8 +271,8 @@ run_bandits <- function(bandits, n_runs, n_steps) {
 }
 
 # Figure 2.2: Average performance of ε-greedy methods using ggplot ----
-fig_2_2 <- function(runs = 200,
-                    steps = 100,
+fig_2_2 <- function(runs = 2000,
+                    steps = 1000,
                     epsilons = c(0, 0.01, 0.1)) {
   bandits <- lapply(epsilons, function(eps) BaseBandit$new(eps = eps))
   res <- run_bandits(bandits, runs, steps)
@@ -283,19 +299,27 @@ fig_2_2 <- function(runs = 200,
     geom_line() +
     labs(title = "Figure 2.2 (Bottom): % Optimal Action", x = "Steps", y = "% Optimal Action")
   
-  print(p1)
+  print(p1 / p2)
   print(p2)
+  
+  fig_num <- "2_2"
+  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  ggsave(filename = filename, p2)
 }
 
 # Run the figure
+start.time <- Sys.time()
 fig_2_2()
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
 
 # EXPERIMENT END PARALLEL ----
 
 # Figure 2.3: The effect of optimistic initial action-value estimates ----
 # on the 10-armed testbed using exponential average bandits.
 # Both methods use a constant step-size parameter, step_size = 0.1.
-fig_2_3 <- function(runs = 20, steps = 10, epsilons = c(0, 0.1), initial_qs = c(5, 0)) {
+fig_2_3 <- function(runs = 2000, steps = 1000, epsilons = c(0, 0.1), initial_qs = c(5, 0)) {
   bandits <- list()
   for (i in seq_along(epsilons)) {
     bandits[[i]] <- ExponentialAverageBandit$new(eps = epsilons[i],
@@ -319,12 +343,20 @@ fig_2_3 <- function(runs = 20, steps = 10, epsilons = c(0, 0.1), initial_qs = c(
          x = "Steps", y = "% Optimal Action")
   
   print(p)
+  fig_num <- "2_3"
+  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  ggsave(filename = filename)
 }
 
+start.time <- Sys.time()
 fig_2_3()
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+# Time difference of 1.791621 mins
 
 # Figure 2.4: Average performance of UCB action selection vs. ε-greedy. ----
-fig_2_4 <- function(runs = 20, steps = 10) {
+fig_2_4 <- function(runs = 2000, steps = 1000) {
   bandits <- list(
     UCBBandit$new(eps = 0, c = 2),
     BaseBandit$new(eps = 0.1)
@@ -348,12 +380,19 @@ fig_2_4 <- function(runs = 20, steps = 10) {
          x = "Steps", y = "% Optimal Action")
   
   print(p)
+  fig_num <- "2_4"
+  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  ggsave(filename = filename)
 }
 
+start.time <- Sys.time()
 fig_2_4()
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
 
 # Figure 2.5: Average performance of the gradient bandit algorithm with and without a reward baseline. -----
-fig_2_5 <- function(runs = 200, steps = 100) {
+fig_2_5 <- function(runs = 2000, steps = 1000) {
   bandits <- list(
     GradientBandit$new(step_size = 0.1, true_q_mean = 4, baseline = TRUE),
     GradientBandit$new(step_size = 0.4, true_q_mean = 4, baseline = TRUE),
@@ -386,6 +425,10 @@ fig_2_5 <- function(runs = 200, steps = 100) {
   ggsave(filename = filename)
 }
 
+start.time <- Sys.time()
 fig_2_5()
-
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+# Time difference of 5.332234 mins
 
