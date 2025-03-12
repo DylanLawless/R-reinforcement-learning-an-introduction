@@ -432,3 +432,108 @@ time.taken <- end.time - start.time
 time.taken
 # Time difference of 5.332234 mins
 
+# Figure 2.6: Parameter study performance ----
+fig_2_6 <- function(runs = 2000, steps = 1000) {
+  labels <- c("epsilon-greedy", "gradient bandit", "UCB", "optimistic initialization")
+
+  params_list <- list(
+    seq(-7, -2),  # epsilon-greedy: varying epsilon = 2^x
+    seq(-5, 1),   # gradient bandit: varying step_size = 2^x
+    seq(-4, 3),   # UCB: varying c = 2^x
+    seq(-2, 2)    # optimistic initialization: varying initial_q = 2^x
+  )
+  
+  # Define generator functions for each algorithm.
+  # Note: Our BaseBandit uses sample averages (epsilon-greedy) by default.
+  generators <- list(
+    function(x) BaseBandit$new(eps = x),                      # epsilon-greedy: vary epsilon
+    function(x) GradientBandit$new(step_size = x, baseline = TRUE),  # gradient bandit: vary step_size
+    function(x) UCBBandit$new(eps = 0, c = x),                # UCB: vary c
+    function(x) BaseBandit$new(eps = 0, initial_q = x)        # optimistic initialization: vary initial_q
+  )
+  
+  # Create a list of bandit instances for all parameter values.
+  bandits <- list()
+  for(i in seq_along(generators)) {
+    for(exp_val in params_list[[i]]) {
+      # Convert exponent to actual parameter value: parameter = 2^(exponent)
+      param_val <- 2^exp_val
+      bandits[[length(bandits) + 1]] <- generators[[i]](param_val)
+    }
+  }
+  
+  # Run simulation for all bandits.
+  # Our run_bandits returns a list with avg_rewards (matrix: bandit x steps).
+  res <- run_bandits(bandits, runs, steps)
+  avg_rewards <- res$avg_rewards
+  # For each bandit, compute average reward across all steps.
+  rewards <- apply(avg_rewards, 1, mean)
+  
+  # Build a data frame grouping results by algorithm.
+  df <- data.frame()
+  idx <- 1
+  for(i in seq_along(labels)) {
+    l <- length(params_list[[i]])
+    exponents <- params_list[[i]]
+    rewards_group <- rewards[idx:(idx + l - 1)]
+    df <- rbind(df, data.frame(
+      exponent = exponents,
+      avg_reward = rewards_group,
+      algorithm = labels[i]
+    ))
+    idx <- idx + l
+    print("index:", idx)
+  }
+  
+  p <- ggplot(df, aes(x = exponent, y = avg_reward, colour = algorithm)) +
+    geom_line() +
+    geom_point() +
+    labs(title = "Figure 2.6: Parameter Study Performance",
+         x = "Parameter exponent (x where parameter = 2^x)",
+         y = "Average Reward per Step")
+  
+  print(p)
+  
+  print(p)
+  fig_num <- "2_6"
+  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  ggsave(filename = filename)
+  
+  return(df)
+}
+
+start.time <- Sys.time()
+fig_2_6(runs = 2000, steps = 1000)
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Time difference of 51.49427 mins
+# 
+#  exponent avg_reward                 algorithm
+# 1        -7  1.1689944            epsilon-greedy
+# 2        -6  1.2582153            epsilon-greedy
+# 3        -5  1.3112762            epsilon-greedy
+# 4        -4  1.3427151            epsilon-greedy
+# 5        -3  1.2789476            epsilon-greedy
+# 6        -2  1.1132311            epsilon-greedy
+# 7        -5  1.0897209           gradient bandit
+# 8        -4  1.2640124           gradient bandit
+# 9        -3  1.3391458           gradient bandit
+# 10       -2  1.4197588           gradient bandit
+# 11       -1  1.3661293           gradient bandit
+# 12        0  1.2600573           gradient bandit
+# 13        1  1.1043205           gradient bandit
+# 14       -4  1.4129722                       UCB
+# 15       -3  1.4097353                       UCB
+# 16       -2  1.4224734                       UCB
+# 17       -1  1.4680971                       UCB
+# 18        0  1.4752659                       UCB
+# 19        1  1.3938571                       UCB
+# 20        2  1.1861562                       UCB
+# 21        3  0.7776442                       UCB
+# 22       -2  1.1566112 optimistic initialization
+# 23       -1  1.2467735 optimistic initialization
+# 24        0  1.3614493 optimistic initialization
+# 25        1  1.4161803 optimistic initialization
+# 26        2  1.3679475 optimistic initialization

@@ -1,6 +1,7 @@
 # R Reinforcement Learning: An Introduction
 
-My R implementation of [*Reinforcement Learning: An Introduction (2nd Edition)*](http://incompleteideas.net/book/the-book-2nd.html) by Richard S. Sutton and Andrew G. Barto.
+My R implementation of [*Reinforcement Learning: An Introduction (2nd Edition)*](http://incompleteideas.net/book/the-book-2nd.html) by [Richard S. Sutton](https://awards.acm.org/award-recipients/sutton_0160594) and
+[Andrew G. Barto](https://awards.acm.org/award-recipients/barto_9471663).
 
 # Contents
 
@@ -93,7 +94,7 @@ Rscript any_file_you_want.R
 
 I am working through the versions in Lisp from the author (Richard S. Sutton) <http://incompleteideas.net/book/code/code2nd.html>. 
 I also reference the versions in Python from <https://github.com/ShangtongZhang/reinforcement-learning-an-introduction>. 
-Veresions in Julialang and Matlab are linked on Sutton's webpage.
+Versions in Julialang and Matlab are linked on Sutton's webpage.
 
 # Contribution
 If you want to contribute some missing examples or fix some bugs, feel free to open an issue or make a pull request. 
