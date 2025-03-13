@@ -3,6 +3,8 @@
 My R implementation of [*Reinforcement Learning: An Introduction (2nd Edition)*](http://incompleteideas.net/book/the-book-2nd.html) by [Richard S. Sutton](https://awards.acm.org/award-recipients/sutton_0160594) and
 [Andrew G. Barto](https://awards.acm.org/award-recipients/barto_9471663).
 
+<img src="figures/fig_ex_3_4_compressed.gif" style="width: 40%;" alt="Pole balance cart gif"/>
+
 # Contents
 
 ### Chapter 1
