@@ -3,7 +3,7 @@ library(patchwork)
 library(gganimate)
 library(dplyr)
 
-# --- Parameters ---
+#  Parameters ----
 N_BOXES <- 162       # Number of state-space boxes
 ALPHA <- 1000        # Learning rate for action weights (w)
 BETA <- 0.5          # Learning rate for critic weights (v)
@@ -11,7 +11,7 @@ GAMMA <- 0.95        # Discount factor for critic
 LAMBDAw <- 0.9       # Decay rate for w eligibility trace
 LAMBDAv <- 0.8       # Decay rate for v eligibility trace
 MAX_FAILURES <- 99   # Maximum number of failures before termination
-MAX_STEPS <- 500000     # Maximum steps in a single trial (i.e. StepInTrial)
+MAX_STEPS <- 10000  # Maximum steps in a single trial (i.e. StepInTrial)
 
 # Physical constants for cart-pole
 GRAVITY <- 9.8
@@ -24,7 +24,7 @@ FORCE_MAG <- 10.0
 TAU <- 0.02                    # Time interval between state updates
 FOURTHIRDS <- 4/3
 
-# --- Helper functions ---
+#  Helper functions ----
 prob_push_right <- function(s) {
   s <- max(-50, min(s, 50))
   1.0 / (1.0 + exp(-s))
@@ -106,7 +106,7 @@ get_box <- function(x, x_dot, theta, theta_dot) {
   return(box)
 }
 
-# --- Detailed simulation with a global step counter and state logging ---
+#  Detailed simulation with a global step counter and state logging ----
 simulate_cartpole_detailed <- function() {
   # Initialize weight and eligibility vectors
   w <- rep(0, N_BOXES)     # Action weights
@@ -139,8 +139,26 @@ simulate_cartpole_detailed <- function() {
   failures <- 0
   # Continue simulation until either a trial reaches MAX_STEPS or MAX_FAILURES is hit.
   while (failures < MAX_FAILURES && (global_steps - last_failure) < MAX_STEPS) {
+    
     global_steps <- global_steps + 1
     step_in_trial <- global_steps - last_failure
+    
+    # Debug:
+    #   print("\nvalues:")
+    #   print(failures)
+    #   print(MAX_FAILURES)
+    #   print(global_steps)
+    #   print(last_failure)
+    #   print(MAX_STEPS)
+    #   
+    # Print a message every 100 steps
+    # if (global_steps %% 100 == 0) {
+    #   cat("Global step:", global_steps, "\n")
+    # }
+    # 
+    # if (step_in_trial %% 100 == 0) {
+    #   cat("Global step:", step_in_trial, "\n")
+    # }
     
     # Choose action: probability from current weight
     prob <- prob_push_right(w[box + 1])
@@ -157,7 +175,7 @@ simulate_cartpole_detailed <- function() {
       GlobalStep = global_steps,
       StepInTrial = step_in_trial,
       Box = box,
-      rhat = NA,      # will be filled after computing rhat
+      rhat = NA,      # to be filled after computing rhat
       w_box = w[box + 1],
       v_box = v[box + 1],
       p_push = prob,
@@ -212,30 +230,34 @@ simulate_cartpole_detailed <- function() {
     box <- new_box
   }
   
-  # Do not print a success message here; final status is determined outside.
-  list(trial_lengths = trial_lengths, history = history, global_steps = global_steps)
+  list(step_in_trial = step_in_trial, trial_lengths = trial_lengths, history = history, global_steps = global_steps)
 }
 
-# --- Run full RL simulation ---
+#  Run full RL simulation ----
 set.seed(123)
 start.time <- Sys.time()
 result <- simulate_cartpole_detailed()
 trial_lengths <- result$trial_lengths
+trial_lengths_count <- length(trial_lengths)
 history <- result$history
 global_steps_final <- result$global_steps
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 cat("Time taken: ", time.taken, "\n")
 
-# --- Final status message based on maximum trial length ---
-last_trial <- if(length(trial_lengths) > 0) max(trial_lengths) else NA
-if (!is.na(last_trial) && last_trial >= MAX_STEPS) {
-  cat(sprintf("Pole balanced successfully for at least %d steps in a trial.\n", last_trial))
-} else {
-  cat(sprintf("Pole not balanced. Stopping after %d failures.\n", length(trial_lengths)))
-}
+#  Final status message based on maximum trial length ----
+# last_trial <- if (length(trial_lengths) > 0) max(trial_lengths) else NA
+final_trial_steps <- result$step_in_trial
 
-# --- Plot 1: Overall Trial Lengths ---
+if (final_trial_steps >= MAX_STEPS) {
+  final_status <- sprintf("Pole balanced successfully for %d steps in trial run %d and training with a total of %d steps.",
+                          final_trial_steps, length(trial_lengths), global_steps_final)
+} else {
+  final_status <- sprintf("Pole not balanced. Stopping after %d run failures.", length(trial_lengths))
+}
+cat(final_status)
+
+#  Plot 1: Overall Trial Lengths ----
 df_trials <- data.frame(
   Trial = seq_along(trial_lengths),
   Steps = trial_lengths
@@ -246,14 +268,14 @@ p1 <- ggplot(df_trials, aes(x = Trial, y = Steps)) +
        x = "Trial Number", y = "Steps") +
   theme_minimal()
 
-# --- Plot 2: Evolution of Reinforcement Signal (rhat) ---
+#  Plot 2: Evolution of Reinforcement Signal (rhat) ----
 p2 <- ggplot(history, aes(x = GlobalStep, y = rhat)) +
   geom_line(color = "darkred") +
   labs(subtitle = "Evolution of Reinforcement Signal (rhat)",
        x = "Global Step", y = "rhat") +
   theme_minimal()
 
-# --- Plot 3: Evolution of Weights in the Current State Box ---
+#  Plot 3: Evolution of Weights in the Current State Box ----
 p3 <- ggplot(history, aes(x = GlobalStep)) +
   geom_point(aes(y = w_box, color = "Action Weight (w)"), size = .1) +
   geom_point(aes(y = v_box, color = "Critic Weight (v)"), size = .1) +
@@ -264,32 +286,40 @@ p3 <- ggplot(history, aes(x = GlobalStep)) +
                                 "Critic Weight (v)" = "salmon")) +
   theme_minimal()
 
-# --- Plot 4: Evolution of Action Probability (Push Right) ---
+#  Plot 4: Evolution of Action Probability (Push Right) ----
 p4 <- ggplot(history, aes(x = GlobalStep, y = p_push)) +
   geom_point(color = "purple", size = .1) +
   labs(subtitle = "Evolution of Action Probability\n(Push Right)",
        x = "Global Step", y = "Probability") +
   theme_minimal()
 
-# --- Combine plots using patchwork and annotate final trial length ---
+#  Combine plots using patchwork and annotate final trial length ----
 final_plot <- (p1 / p2) | (p3 / p4)
+# final_plot <- final_plot + 
+#   plot_annotation(title = sprintf("Figure example 3_4: Cart-Pole Balancing Learning Dynamics\nFinal Trial Length: %s steps", 
+#                                   ifelse(is.na(final_trial_steps), "N/A")))
+
 final_plot <- final_plot + 
-  plot_annotation(title = sprintf("Figure 3_2: Cart-Pole Balancing Learning Dynamics\nFinal Trial Length: %s steps", 
-                                  ifelse(is.na(last_trial), "N/A", last_trial)))
+  plot_annotation(title = "Figure example 3_4: Cart-Pole Balancing Learning Dynamics",
+                  subtitle = final_status)
+
 print(final_plot)
 
 # Save final plot as PNG
-fig_num <- "ex_3_4_static"
+fig_num <- "ex_3_4"
 filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
-ggsave(filename = filename, final_plot)
+ggsave(filename = filename, final_plot, width = 8, height = 6)
 
-# --- Animation using real RL simulation data ---
-# Use the recorded state variables from 'history'
+#  Animation using real RL simulation data ----
 anim_data <- history %>% 
   mutate(cart_left = x - 0.5,
          cart_right = x + 0.5,
          cart_top = 0.2,   # fixed cart height
          cart_bottom = 0)
+
+# Add a trial_count column to the animation data.
+anim_data <- anim_data %>%
+  mutate(trial_count = cumsum(c(0, diff(StepInTrial) < 0)))
 
 p_anim <- ggplot(anim_data, aes(frame = GlobalStep)) +
   geom_rect(aes(xmin = cart_left, xmax = cart_right, ymin = cart_bottom, ymax = cart_top),
@@ -300,12 +330,41 @@ p_anim <- ggplot(anim_data, aes(frame = GlobalStep)) +
                size = 2, color = "red") +
   coord_fixed(xlim = c(min(anim_data$x, na.rm = TRUE) - 2, max(anim_data$x, na.rm = TRUE) + 2),
               ylim = c(0, 4)) +
-  labs(title = sprintf("Cart-Pole Simulation at Global Step: {frame_time}\nFinal Trial Length: %s steps", 
-                       ifelse(is.na(last_trial), "N/A", last_trial))) +
+  labs(title = stringr::str_wrap(final_status, 60)) +
+  geom_text(aes(x = 0, y= 3, 
+                label = paste0(
+                  "Total runs:", trial_lengths_count,
+                  "\nTrial run: ", trial_count,
+                  "\nTrial step: ", StepInTrial)),
+            vjust = 0, color = "blue",  hjust = 0) +
   transition_time(GlobalStep)
 
 n_unique <- length(unique(anim_data$GlobalStep))
-nframes <- round(n_unique / 10)
-anim <- animate(p_anim, nframes = nframes, fps = 20, renderer = gifski_renderer())
+# nframes <- round(n_unique / 100)
+nframes <- 999 # e.g. google slide max is 1000 frames
+anim <- animate(p_anim, nframes = nframes, renderer = gifski_renderer()) #  fps = 20,
 gif_filename <- file.path(paste0("figures/fig_", fig_num, ".gif"))
 anim_save(gif_filename, anim)
+
+# Save a static final frame ----
+final_frame_data <- tail(anim_data, 1)
+
+final_plot <- ggplot(final_frame_data, aes(x = x, y = cart_top)) +
+  geom_rect(aes(xmin = cart_left, xmax = cart_right, ymin = cart_bottom, ymax = cart_top),
+            fill = "blue", color = "black") +
+  geom_segment(aes(xend = x + 1.5 * sin(theta), yend = cart_top + 1.5 * cos(theta)),
+               size = 2, color = "red") +
+  coord_fixed(xlim = c(min(final_frame_data$x, na.rm = TRUE) - 2, max(final_frame_data$x, na.rm = TRUE) + 2),
+              ylim = c(0, 4)) +
+  labs(title = stringr::str_wrap(final_status, 60),
+       subtitle = paste("Total runs:", trial_lengths_count, "\nLast trial step:", final_frame_data$StepInTrial)) +
+  theme_minimal()
+
+final_plot <- final_plot + 
+  theme(#panel.background = element_rect(fill = "white"),
+        plot.background = element_rect(fill = "white")) 
+
+# Save the final frame as a PNG file
+fig_num <- "ex_3_4_gif_static"
+filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+ggsave(filename, final_plot, width = 6, height = 6)

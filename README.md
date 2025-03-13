@@ -17,9 +17,11 @@ My R implementation of [*Reinforcement Learning: An Introduction (2nd Edition)*]
 6. [Figure 2.6: A parameter study of the various bandit algorithms](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_2_6.png)
 
 ### Chapter 3
-0. [pole](null)
+1. [Figure example 3.4 Cart pole balance metrics](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_ex_3_4.png)
+1. [Figure example 3.4 Cart pole balance final demo static](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_ex_3_4_gif_static.png)
+1. [Figure example 3.4 Cart pole balance final demo gif](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_ex_3_4_compressed.gif)
 1. [Figure 3.2: Grid example with random policy](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_3_2.png)
-2. [Figure 3.5: Optimal solutions to the gridworld example](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_3_5.png)
+1. [Figure 3.5: Optimal solutions to the gridworld example](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_3_5.png)
 
 ### Chapter 4
 1. [Figure 4.1: Convergence of iterative policy evaluation on a small gridworld](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_4_1.png)
