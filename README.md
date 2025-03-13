@@ -17,6 +17,7 @@ My R implementation of [*Reinforcement Learning: An Introduction (2nd Edition)*]
 6. [Figure 2.6: A parameter study of the various bandit algorithms](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_2_6.png)
 
 ### Chapter 3
+0. [pole](null)
 1. [Figure 3.2: Grid example with random policy](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_3_2.png)
 2. [Figure 3.5: Optimal solutions to the gridworld example](https://raw.githubusercontent.com/DylanLawless/R-reinforcement-learning-an-introduction/main/figures/fig_3_5.png)
 
