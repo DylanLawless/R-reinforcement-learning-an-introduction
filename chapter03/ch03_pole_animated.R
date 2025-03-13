@@ -307,7 +307,7 @@ print(final_plot)
 
 # Save final plot as PNG
 fig_num <- "ex_3_4"
-filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
 ggsave(filename = filename, final_plot, width = 8, height = 6)
 
 #  Animation using real RL simulation data ----
@@ -343,7 +343,7 @@ n_unique <- length(unique(anim_data$GlobalStep))
 # nframes <- round(n_unique / 100)
 nframes <- 999 # e.g. google slide max is 1000 frames
 anim <- animate(p_anim, nframes = nframes, renderer = gifski_renderer()) #  fps = 20,
-gif_filename <- file.path(paste0("figures/fig_", fig_num, ".gif"))
+gif_filename <- file.path(paste0("../figures/fig_", fig_num, ".gif"))
 anim_save(gif_filename, anim)
 
 # Save a static final frame ----
@@ -366,5 +366,5 @@ final_plot <- final_plot +
 
 # Save the final frame as a PNG file
 fig_num <- "ex_3_4_gif_static"
-filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
 ggsave(filename, final_plot, width = 6, height = 6)

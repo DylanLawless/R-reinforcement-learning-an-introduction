@@ -178,7 +178,7 @@ fig_2_1 <- function() {
   
   print(p)
   fig_num <- "2_1"
-  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
   ggsave(filename = filename)
 }
 
@@ -216,7 +216,7 @@ fig_2_2 <- function(runs = 2000, steps = 1000, epsilons = c(0, 0.01, 0.1)) {
   # print(p2)
   
   fig_num <- "2_2"
-  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
   ggsave(filename = filename, p2)
 
 }
@@ -303,7 +303,7 @@ fig_2_2 <- function(runs = 2000,
   print(p2)
   
   fig_num <- "2_2"
-  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
   ggsave(filename = filename, p2)
 }
 
@@ -344,7 +344,7 @@ fig_2_3 <- function(runs = 2000, steps = 1000, epsilons = c(0, 0.1), initial_qs 
   
   print(p)
   fig_num <- "2_3"
-  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
   ggsave(filename = filename)
 }
 
@@ -381,7 +381,7 @@ fig_2_4 <- function(runs = 2000, steps = 1000) {
   
   print(p)
   fig_num <- "2_4"
-  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
   ggsave(filename = filename)
 }
 
@@ -421,7 +421,7 @@ fig_2_5 <- function(runs = 2000, steps = 1000) {
   print(p)
   
   fig_num <- "2_5"
-  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
   ggsave(filename = filename)
 }
 
@@ -496,7 +496,7 @@ fig_2_6 <- function(runs = 2000, steps = 1000) {
   
   print(p)
   fig_num <- "2_6"
-  filename <- file.path(paste0("figures/fig_", fig_num, ".png"))
+  filename <- file.path(paste0("../figures/fig_", fig_num, ".png"))
   ggsave(filename = filename)
   
   return(df)
