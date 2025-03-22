@@ -3,247 +3,471 @@ library(patchwork)
 library(gganimate)
 library(dplyr)
 
-#  Parameters ----
-N_BOXES <- 162       # Number of state-space boxes
-ALPHA <- 1000        # Learning rate for action weights (w)
-BETA <- 0.5          # Learning rate for critic weights (v)
-GAMMA <- 0.95        # Discount factor for critic
-LAMBDAw <- 0.9       # Decay rate for w eligibility trace
-LAMBDAv <- 0.8       # Decay rate for v eligibility trace
-MAX_FAILURES <- 99   # Maximum number of failures before termination
-MAX_STEPS <- 10000  # Maximum steps in a single trial (i.e. StepInTrial)
+# ---- RL Parameters for Temperature Control ----
+N_BOXES <- 20          # Number of discrete temperature bins
+num_actions <- 5       # Number of stirring options
+ALPHA <- 100           # Learning rate for actor weights (reduced to allow gradual changes)
+BETA <- 0.1            # Learning rate for critic weights
+GAMMA <- 0.95          # Discount factor for critic
+LAMBDAw <- 0.9         # Decay rate for actor eligibility trace
+LAMBDAv <- 0.8         # Decay rate for critic eligibility trace
+MAX_FAILURES <- 100    # Maximum number of failures before termination
+MAX_STEPS <- 5000      # Maximum steps in a trial
+allowed_steps_in_bad_temp <- 50  # Steps allowed in a persistently bad state
 
-# Physical constants for cart-pole
-GRAVITY <- 9.8
-MASSCART <- 1.0
-MASSPOLE <- 0.1
-TOTAL_MASS <- MASSCART + MASSPOLE
-LENGTH <- 0.5                  # Half the pole's length
-POLEMASS_LENGTH <- MASSPOLE * LENGTH
-FORCE_MAG <- 10.0
-TAU <- 0.02                    # Time interval between state updates
-FOURTHIRDS <- 4/3
+# ---- Reactor Environment Parameters ----
+grid_size <- 3        # Reactor grid is grid_size x grid_size
+goal_temp <- 15       # Desired average temperature
+max_temp <- 60        # Maximum possible temperature (cap)
+min_temp <- 0         # Minimum possible temperature
 
-#  Helper functions ----
-prob_push_right <- function(s) {
-  s <- max(-50, min(s, 50))
-  1.0 / (1.0 + exp(-s))
+# Define fine-grained stirring values (actions)
+possible_stirring <- seq(0.2, 0.8, length.out = num_actions)
+
+# Softmax function for action probabilities with temperature parameter (set to 1)
+softmax <- function(x) {
+  exp_x <- exp(x - max(x))
+  exp_x / sum(exp_x)
 }
 
-cart_pole <- function(action, state) {
-  # state: vector [x, x_dot, theta, theta_dot]
-  x <- state[1]
-  x_dot <- state[2]
-  theta <- state[3]
-  theta_dot <- state[4]
-  
-  force <- if (action > 0) FORCE_MAG else -FORCE_MAG
-  costheta <- cos(theta)
-  sintheta <- sin(theta)
-  
-  temp <- (force + POLEMASS_LENGTH * theta_dot^2 * sintheta) / TOTAL_MASS
-  thetaacc <- (GRAVITY * sintheta - costheta * temp) /
-    (LENGTH * (FOURTHIRDS - MASSPOLE * costheta^2 / TOTAL_MASS))
-  xacc <- temp - POLEMASS_LENGTH * thetaacc * costheta / TOTAL_MASS
-  
-  # Euler update
-  x <- x + TAU * x_dot
-  x_dot <- x_dot + TAU * xacc
-  theta <- theta + TAU * theta_dot
-  theta_dot <- theta_dot + TAU * thetaacc
-  
-  c(x, x_dot, theta, theta_dot)
+# ---- Reactor Simulation Functions ----
+
+# Initialize reactor grid: all cells start at goal temperature.
+init_grid <- function() {
+  matrix(goal_temp, nrow = grid_size, ncol = grid_size)
 }
 
-one_degree <- 0.0174532
-six_degrees <- 0.1047192
-twelve_degrees <- 0.2094384
-fifty_degrees <- 0.87266
-
-get_box <- function(x, x_dot, theta, theta_dot) {
-  # Returns a box index (0-indexed) or -1 if failure state.
-  if (x < -2.4 || x > 2.4 || theta < -twelve_degrees || theta > twelve_degrees)
-    return(-1)
-  
-  if (x < -0.8) {
-    box <- 0
-  } else if (x < 0.8) {
-    box <- 1
-  } else {
-    box <- 2
-  }
-  
-  if (x_dot < -0.5) {
-    # no addition
-  } else if (x_dot < 0.5) {
-    box <- box + 3
-  } else {
-    box <- box + 6
-  }
-  
-  if (theta < -six_degrees) {
-    # no addition
-  } else if (theta < -one_degree) {
-    box <- box + 9
-  } else if (theta < 0) {
-    box <- box + 18
-  } else if (theta < one_degree) {
-    box <- box + 27
-  } else if (theta < six_degrees) {
-    box <- box + 36
-  } else {
-    box <- box + 45
-  }
-  
-  if (theta_dot < -fifty_degrees) {
-    # no addition
-  } else if (theta_dot < fifty_degrees) {
-    box <- box + 54
-  } else {
-    box <- box + 108
-  }
-  
-  return(box)
+# Compute average temperature of neighbours for cell (x,y)
+get_neighbours <- function(grid, x, y) {
+  indices <- expand.grid(dx = -1:1, dy = -1:1) %>%
+    filter(!(dx == 0 & dy == 0)) %>%
+    mutate(nx = x + dx, ny = y + dy) %>%
+    filter(nx >= 1, nx <= grid_size, ny >= 1, ny <= grid_size)
+  mean(sapply(1:nrow(indices), function(i) grid[indices$ny[i], indices$nx[i]]))
 }
 
-#  Detailed simulation with a global step counter and state logging ----
-simulate_cartpole_detailed <- function() {
-  # Initialize weight and eligibility vectors
-  w <- rep(0, N_BOXES)     # Action weights
-  v <- rep(0, N_BOXES)     # Critic weights
-  e <- rep(0, N_BOXES)     # Eligibility trace for w
-  xbar <- rep(0, N_BOXES)  # Eligibility trace for v
+# Simulate one reactor step:
+# A random cell receives a heat boost; then stirring mixes temperatures.
+reactor_step <- function(grid, stirring) {
+  rx <- sample(1:grid_size, 1)
+  ry <- sample(1:grid_size, 1)
+  grid[ry, rx] <- min(grid[ry, rx] + 3, max_temp)
   
-  # Initial state: (x, x_dot, theta, theta_dot)
-  state <- c(0, 0, 0, 0)
-  box <- get_box(state[1], state[2], state[3], state[4])
-  if (box < 0) stop("Initial state in failure region.")
+  new_grid <- grid
+  for (y in 1:grid_size) {
+    for (x in 1:grid_size) {
+      nb_avg <- get_neighbours(grid, x, y)
+      new_grid[y, x] <- (1 - stirring) * grid[y, x] + stirring * nb_avg
+      new_grid[y, x] <- max(min_temp, min(new_grid[y, x], max_temp))
+    }
+  }
+  new_grid
+}
+
+# Discretise the average temperature into one of N_BOXES bins.
+# Temperatures outside [5,30] are considered failure (returns -1).
+get_box <- function(avg_temp) {
+  if (avg_temp < 5 || avg_temp > 30) return(-1)
+  bin_width <- (30 - 5) / N_BOXES
+  bin <- floor((avg_temp - 5) / bin_width)
+  if (bin >= N_BOXES) bin <- N_BOXES - 1
+  return(bin)
+}
+
+# ---- RL Simulation for Temperature Control ----
+simulate_temperature_control <- function() {
+  # Initialise actor (w) and critic (v) weights and eligibility traces.
+  # Initialize actor weights with small random numbers to promote exploration.
+  w <- matrix(runif(N_BOXES * num_actions, -0.1, 0.1), nrow = N_BOXES, ncol = num_actions)
+  e <- matrix(0, nrow = N_BOXES, ncol = num_actions)
+  v <- rep(0, N_BOXES)
+  xbar <- rep(0, N_BOXES)
   
-  # Data storage for per-step logging (record state as well)
+  grid <- init_grid()
+  state <- mean(grid)   # Initial average temperature
+  box <- get_box(state)
+  if (box < 0) stop("Initial state out of acceptable range.")
+  
   history <- data.frame(
     GlobalStep = integer(),
     StepInTrial = integer(),
     Box = integer(),
     rhat = numeric(),
-    w_box = numeric(),
-    v_box = numeric(),
-    p_push = numeric(),
-    x = numeric(),
-    theta = numeric()
+    chosen_action = integer(),
+    stirring = numeric(),
+    w_val = numeric(),
+    v_val = numeric(),
+    p_action = numeric(),
+    state = numeric()
   )
   
-  trial_lengths <- c()  # Store trial lengths (in global steps)
-  global_steps <- 0     # Global step counter (never resets)
-  last_failure <- 0     # Global step count at last failure
-  
+  trial_lengths <- c()
+  global_steps <- 0
+  last_failure <- 0
   failures <- 0
-  # Continue simulation until either a trial reaches MAX_STEPS or MAX_FAILURES is hit.
+  bad_start <- NA  # Step when a persistently bad state starts
+  
   while (failures < MAX_FAILURES && (global_steps - last_failure) < MAX_STEPS) {
-    
     global_steps <- global_steps + 1
     step_in_trial <- global_steps - last_failure
     
-    # Debug:
-    #   print("\nvalues:")
-    #   print(failures)
-    #   print(MAX_FAILURES)
-    #   print(global_steps)
-    #   print(last_failure)
-    #   print(MAX_STEPS)
-    #   
-    # Print a message every 100 steps
-    # if (global_steps %% 100 == 0) {
-    #   cat("Global step:", global_steps, "\n")
-    # }
-    # 
-    # if (step_in_trial %% 100 == 0) {
-    #   cat("Global step:", step_in_trial, "\n")
-    # }
+    # Compute action probabilities using softmax.
+    p_actions <- softmax(w[box + 1, ])
+    action <- sample(1:num_actions, size = 1, prob = p_actions)
+    stirring <- possible_stirring[action]
     
-    # Choose action: probability from current weight
-    prob <- prob_push_right(w[box + 1])
-    y <- if (runif(1) < prob) 1 else 0
-    
-    # Update eligibility traces for current box
-    e[box + 1] <- e[box + 1] + (1 - LAMBDAw) * (y - 0.5)
+    # Compute gradient and update eligibility traces for current box.
+    grad <- rep(0, num_actions)
+    grad[action] <- 1
+    grad <- grad - p_actions
+    e[box + 1, ] <- e[box + 1, ] + (1 - LAMBDAw) * grad
     xbar[box + 1] <- xbar[box + 1] + (1 - LAMBDAv)
+    old_p <- v[box + 1]
     
-    oldp <- v[box + 1]
-    
-    # Log current state BEFORE action update
+    # Log current state before applying action.
     history <- rbind(history, data.frame(
       GlobalStep = global_steps,
       StepInTrial = step_in_trial,
       Box = box,
-      rhat = NA,      # to be filled after computing rhat
-      w_box = w[box + 1],
-      v_box = v[box + 1],
-      p_push = prob,
-      x = state[1],
-      theta = state[3]
+      rhat = NA,
+      chosen_action = action,
+      stirring = stirring,
+      w_val = w[box + 1, action],
+      v_val = v[box + 1],
+      p_action = p_actions[action],
+      state = state
     ))
     
-    # Apply action: update state
-    state <- cart_pole(y, state)
-    new_box <- get_box(state[1], state[2], state[3], state[4])
+    # Apply action: update reactor state.
+    grid <- reactor_step(grid, stirring)
+    state_new <- mean(grid)
+    new_box <- get_box(state_new)
     
+    # Determine reward and whether state is persistently bad.
     if (new_box < 0) {
-      # Failure occurred: record trial length as difference
-      failures <- failures + 1
-      trial_length <- global_steps - last_failure
-      trial_lengths <- c(trial_lengths, trial_length)
-      cat(sprintf("Trial %d was %d steps.\n", failures, trial_length))
-      
-      # Set reinforcement and prediction for failure
-      r <- -1.0
-      p <- 0.0
-      failed <- TRUE
-      
-      # Update last_failure without resetting global_steps
-      last_failure <- global_steps
-      
-      # Reset state to initial and continue
-      state <- c(0, 0, 0, 0)
-      new_box <- get_box(state[1], state[2], state[3], state[4])
+      if (is.na(bad_start)) { bad_start <- step_in_trial }
+      if ((step_in_trial - bad_start) >= allowed_steps_in_bad_temp) {
+        failures <- failures + 1
+        trial_length <- global_steps - last_failure
+        trial_lengths <- c(trial_lengths, trial_length)
+        r <- -1.0   # Penalty for failure.
+        p_new <- 0.0
+        failed <- TRUE
+        last_failure <- global_steps
+        grid <- init_grid()
+        state_new <- mean(grid)
+        new_box <- get_box(state_new)
+        bad_start <- NA
+        
+        # Detailed console logging.
+        cat(sprintf("Step: %d | Trial Step: %d | Box: %d -> %d | Temp: %.2f -> %.2f | Action: %d | Stir: %.2f | p_action: %.2f | Reward: %.2f | rhat: %.2f | w: [%.2f] | v: %.2f\n",
+                    global_steps, step_in_trial, box, new_box, state, state_new, action, stirring, p_actions[action], r, rhat, 
+                    w[box + 1, action], v[box + 1]),
+            "\n")
+        
+      } else {
+        r <- -abs(state_new - goal_temp)
+        p_new <- v[box + 1]
+        failed <- FALSE
+        new_box <- box
+      }
     } else {
-      r <- 0.0
-      p <- v[new_box + 1]
+      bad_start <- NA
+      # Reward is positive if within 1 degree of the goal, else proportional penalty.
+      if (abs(state_new - goal_temp) < 1) {
+        r <- 1.0
+      } else {
+        r <- -abs(state_new - goal_temp)
+      }
+      p_new <- v[new_box + 1]
       failed <- FALSE
     }
     
-    rhat <- r + GAMMA * p - oldp
-    history$rhat[nrow(history)] <- rhat  # update logged rhat
+    rhat <- r + GAMMA * p_new - old_p
+    history$rhat[nrow(history)] <- rhat  # Log temporal-difference error.
     
-    # Update weights and traces for all boxes
+    # Update weights and eligibility traces for all state bins.
     for (i in 1:N_BOXES) {
-      w[i] <- w[i] + ALPHA * rhat * e[i]
+      w[i, ] <- w[i, ] + ALPHA * rhat * e[i, ]
       v[i] <- v[i] + BETA * rhat * xbar[i]
       if (failed) {
-        e[i] <- 0.0
+        e[i, ] <- 0.0
         xbar[i] <- 0.0
       } else {
-        e[i] <- e[i] * LAMBDAw
+        e[i, ] <- e[i, ] * LAMBDAw
         xbar[i] <- xbar[i] * LAMBDAv
       }
     }
     
-    box <- new_box
+
+    
+    if (new_box >= 0) box <- new_box
+    state <- state_new
   }
   
-  list(step_in_trial = step_in_trial, trial_lengths = trial_lengths, history = history, global_steps = global_steps)
+  list(history = history, trial_lengths = trial_lengths, global_steps = global_steps)
 }
 
-#  Run full RL simulation ----
-set.seed(123)
+# ---- Run Full RL Simulation for Temperature Control ----
+set.seed(42)
 start.time <- Sys.time()
-result <- simulate_cartpole_detailed()
-trial_lengths <- result$trial_lengths
-trial_lengths_count <- length(trial_lengths)
+result <- simulate_temperature_control()
 history <- result$history
+trial_lengths <- result$trial_lengths
 global_steps_final <- result$global_steps
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 cat("Time taken: ", time.taken, "\n")
+
+
+
+
+# library(ggplot2); theme_set(theme_bw())
+# library(patchwork)
+# library(gganimate)
+# library(dplyr)
+# 
+# #  Parameters ----
+# N_BOXES <- 162       # Number of state-space boxes
+# ALPHA <- 1000        # Learning rate for action weights (w)
+# BETA <- 0.5          # Learning rate for critic weights (v)
+# GAMMA <- 0.95        # Discount factor for critic
+# LAMBDAw <- 0.9       # Decay rate for w eligibility trace
+# LAMBDAv <- 0.8       # Decay rate for v eligibility trace
+# MAX_FAILURES <- 99   # Maximum number of failures before termination
+# MAX_STEPS <- 10000  # Maximum steps in a single trial (i.e. StepInTrial)
+# 
+# # Physical constants for cart-pole
+# GRAVITY <- 9.8
+# MASSCART <- 1.0
+# MASSPOLE <- 0.1
+# TOTAL_MASS <- MASSCART + MASSPOLE
+# LENGTH <- 0.5                  # Half the pole's length
+# POLEMASS_LENGTH <- MASSPOLE * LENGTH
+# FORCE_MAG <- 10.0
+# TAU <- 0.02                    # Time interval between state updates
+# FOURTHIRDS <- 4/3
+# 
+# #  Helper functions ----
+# prob_push_right <- function(s) {
+#   s <- max(-50, min(s, 50))
+#   1.0 / (1.0 + exp(-s))
+# }
+# 
+# cart_pole <- function(action, state) {
+#   # state: vector [x, x_dot, theta, theta_dot]
+#   x <- state[1]
+#   x_dot <- state[2]
+#   theta <- state[3]
+#   theta_dot <- state[4]
+#   
+#   force <- if (action > 0) FORCE_MAG else -FORCE_MAG
+#   costheta <- cos(theta)
+#   sintheta <- sin(theta)
+#   
+#   temp <- (force + POLEMASS_LENGTH * theta_dot^2 * sintheta) / TOTAL_MASS
+#   thetaacc <- (GRAVITY * sintheta - costheta * temp) /
+#     (LENGTH * (FOURTHIRDS - MASSPOLE * costheta^2 / TOTAL_MASS))
+#   xacc <- temp - POLEMASS_LENGTH * thetaacc * costheta / TOTAL_MASS
+#   
+#   # Euler update
+#   x <- x + TAU * x_dot
+#   x_dot <- x_dot + TAU * xacc
+#   theta <- theta + TAU * theta_dot
+#   theta_dot <- theta_dot + TAU * thetaacc
+#   
+#   c(x, x_dot, theta, theta_dot)
+# }
+# 
+# one_degree <- 0.0174532
+# six_degrees <- 0.1047192
+# twelve_degrees <- 0.2094384
+# fifty_degrees <- 0.87266
+# 
+# get_box <- function(x, x_dot, theta, theta_dot) {
+#   # Returns a box index (0-indexed) or -1 if failure state.
+#   if (x < -2.4 || x > 2.4 || theta < -twelve_degrees || theta > twelve_degrees)
+#     return(-1)
+#   
+#   if (x < -0.8) {
+#     box <- 0
+#   } else if (x < 0.8) {
+#     box <- 1
+#   } else {
+#     box <- 2
+#   }
+#   
+#   if (x_dot < -0.5) {
+#     # no addition
+#   } else if (x_dot < 0.5) {
+#     box <- box + 3
+#   } else {
+#     box <- box + 6
+#   }
+#   
+#   if (theta < -six_degrees) {
+#     # no addition
+#   } else if (theta < -one_degree) {
+#     box <- box + 9
+#   } else if (theta < 0) {
+#     box <- box + 18
+#   } else if (theta < one_degree) {
+#     box <- box + 27
+#   } else if (theta < six_degrees) {
+#     box <- box + 36
+#   } else {
+#     box <- box + 45
+#   }
+#   
+#   if (theta_dot < -fifty_degrees) {
+#     # no addition
+#   } else if (theta_dot < fifty_degrees) {
+#     box <- box + 54
+#   } else {
+#     box <- box + 108
+#   }
+#   
+#   return(box)
+# }
+# 
+# #  Detailed simulation with a global step counter and state logging ----
+# simulate_cartpole_detailed <- function() {
+#   # Initialize weight and eligibility vectors
+#   w <- rep(0, N_BOXES)     # Action weights
+#   v <- rep(0, N_BOXES)     # Critic weights
+#   e <- rep(0, N_BOXES)     # Eligibility trace for w
+#   xbar <- rep(0, N_BOXES)  # Eligibility trace for v
+#   
+#   # Initial state: (x, x_dot, theta, theta_dot)
+#   state <- c(0, 0, 0, 0)
+#   box <- get_box(state[1], state[2], state[3], state[4])
+#   if (box < 0) stop("Initial state in failure region.")
+#   
+#   # Data storage for per-step logging (record state as well)
+#   history <- data.frame(
+#     GlobalStep = integer(),
+#     StepInTrial = integer(),
+#     Box = integer(),
+#     rhat = numeric(),
+#     w_box = numeric(),
+#     v_box = numeric(),
+#     p_push = numeric(),
+#     x = numeric(),
+#     theta = numeric()
+#   )
+#   
+#   trial_lengths <- c()  # Store trial lengths (in global steps)
+#   global_steps <- 0     # Global step counter (never resets)
+#   last_failure <- 0     # Global step count at last failure
+#   
+#   failures <- 0
+#   # Continue simulation until either a trial reaches MAX_STEPS or MAX_FAILURES is hit.
+#   while (failures < MAX_FAILURES && (global_steps - last_failure) < MAX_STEPS) {
+#     
+#     global_steps <- global_steps + 1
+#     step_in_trial <- global_steps - last_failure
+#     
+#     # Debug:
+#     #   print("\nvalues:")
+#     #   print(failures)
+#     #   print(MAX_FAILURES)
+#     #   print(global_steps)
+#     #   print(last_failure)
+#     #   print(MAX_STEPS)
+#     #   
+#     # Print a message every 100 steps
+#     # if (global_steps %% 100 == 0) {
+#     #   cat("Global step:", global_steps, "\n")
+#     # }
+#     # 
+#     # if (step_in_trial %% 100 == 0) {
+#     #   cat("Global step:", step_in_trial, "\n")
+#     # }
+#     
+#     # Choose action: probability from current weight
+#     prob <- prob_push_right(w[box + 1])
+#     y <- if (runif(1) < prob) 1 else 0
+#     
+#     # Update eligibility traces for current box
+#     e[box + 1] <- e[box + 1] + (1 - LAMBDAw) * (y - 0.5)
+#     xbar[box + 1] <- xbar[box + 1] + (1 - LAMBDAv)
+#     
+#     oldp <- v[box + 1]
+#     
+#     # Log current state BEFORE action update
+#     history <- rbind(history, data.frame(
+#       GlobalStep = global_steps,
+#       StepInTrial = step_in_trial,
+#       Box = box,
+#       rhat = NA,      # to be filled after computing rhat
+#       w_box = w[box + 1],
+#       v_box = v[box + 1],
+#       p_push = prob,
+#       x = state[1],
+#       theta = state[3]
+#     ))
+#     
+#     # Apply action: update state
+#     state <- cart_pole(y, state)
+#     new_box <- get_box(state[1], state[2], state[3], state[4])
+#     
+#     if (new_box < 0) {
+#       # Failure occurred: record trial length as difference
+#       failures <- failures + 1
+#       trial_length <- global_steps - last_failure
+#       trial_lengths <- c(trial_lengths, trial_length)
+#       cat(sprintf("Trial %d was %d steps.\n", failures, trial_length))
+#       
+#       # Set reinforcement and prediction for failure
+#       r <- -1.0
+#       p <- 0.0
+#       failed <- TRUE
+#       
+#       # Update last_failure without resetting global_steps
+#       last_failure <- global_steps
+#       
+#       # Reset state to initial and continue
+#       state <- c(0, 0, 0, 0)
+#       new_box <- get_box(state[1], state[2], state[3], state[4])
+#     } else {
+#       r <- 0.0
+#       p <- v[new_box + 1]
+#       failed <- FALSE
+#     }
+#     
+#     rhat <- r + GAMMA * p - oldp
+#     history$rhat[nrow(history)] <- rhat  # update logged rhat
+#     
+#     # Update weights and traces for all boxes
+#     for (i in 1:N_BOXES) {
+#       w[i] <- w[i] + ALPHA * rhat * e[i]
+#       v[i] <- v[i] + BETA * rhat * xbar[i]
+#       if (failed) {
+#         e[i] <- 0.0
+#         xbar[i] <- 0.0
+#       } else {
+#         e[i] <- e[i] * LAMBDAw
+#         xbar[i] <- xbar[i] * LAMBDAv
+#       }
+#     }
+#     
+#     box <- new_box
+#   }
+#   
+#   list(step_in_trial = step_in_trial, trial_lengths = trial_lengths, history = history, global_steps = global_steps)
+# }
+# 
+# #  Run full RL simulation ----
+# set.seed(123)
+# start.time <- Sys.time()
+# result <- simulate_cartpole_detailed()
+# trial_lengths <- result$trial_lengths
+# trial_lengths_count <- length(trial_lengths)
+# history <- result$history
+# global_steps_final <- result$global_steps
+# end.time <- Sys.time()
+# time.taken <- end.time - start.time
+# cat("Time taken: ", time.taken, "\n")
 
 #  Final status message based on maximum trial length ----
 # last_trial <- if (length(trial_lengths) > 0) max(trial_lengths) else NA
